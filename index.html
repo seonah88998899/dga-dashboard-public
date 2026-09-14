@@ -248,6 +248,19 @@
   .kpi.good .kpi-value{ color: var(--good); }
   .kpi.warning .kpi-value{ color: var(--warning); }
   .kpi.critical .kpi-value{ color: var(--critical); }
+  .kpi{ position: relative; cursor: default; }
+  .kpi-tooltip{
+    display: none; position: absolute; top: calc(100% + 8px); left: 0; z-index: 60;
+    min-width: 220px; max-width: 320px; max-height: 260px; overflow-y: auto;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    box-shadow: var(--shadow); padding: 10px 12px; font-size: 12px; line-height: 1.65;
+  }
+  .kpi-tooltip.align-right{ left: auto; right: 0; }
+  .kpi:hover .kpi-tooltip, .kpi:focus-within .kpi-tooltip{ display: block; }
+  .kpi-tooltip-title{ font-weight: 700; margin-bottom: 6px; color: var(--text); }
+  .kpi-tooltip-empty{ color: var(--text-muted); }
+  .kpi-tooltip ul{ margin: 0; padding-left: 16px; }
+  .kpi-tooltip li{ white-space: nowrap; }
 
   .section-title{
     font-size: 13px; font-weight: 700; color: var(--text-secondary);
@@ -3221,24 +3234,55 @@ function renderSummaryPanel(){
   }
 }
 
+function kpiTooltipListHtml(units, emptyText){
+  if(!units.length) return `<div class="kpi-tooltip-empty">${escapeHtml(emptyText)}</div>`;
+  const sorted = [...units].sort((a,b)=>a.no-b.no);
+  return `<ul>${sorted.map(u=>`<li>${escapeHtml(u.no + '. ' + u.group)}</li>`).join('')}</ul>`;
+}
+function kpiTooltipHtml(title, units, emptyText, alignRight){
+  return `<div class="kpi-tooltip${alignRight?' align-right':''}">
+    <div class="kpi-tooltip-title">${escapeHtml(title)} (${units.length}대)</div>
+    ${kpiTooltipListHtml(units, emptyText)}
+  </div>`;
+}
+
 function renderOverview(){
   const counts = {good:0, warning:0, critical:0};
-  let trendCount = 0;
+  const byStatusUnits = {good:[], warning:[], critical:[]};
+  const trendUnits = [];
   DATA.forEach(u=>{
-    counts[unitStatus(u).status] = (counts[unitStatus(u).status]||0) + 1;
-    if(unitTrends(u).length) trendCount++;
+    const st = unitStatus(u).status;
+    counts[st] = (counts[st]||0) + 1;
+    byStatusUnits[st].push(u);
+    if(unitTrends(u).length) trendUnits.push(u);
   });
+  const trendCount = trendUnits.length;
 
   const sortedByNo = [...DATA].map((u,i)=>({u,i})).sort((a,b)=>a.u.no-b.u.no);
   const sample = DATA[0];
 
   const html = `
   <div class="kpi-row" style="margin-bottom:16px;">
-    <div class="kpi"><div class="kpi-label">전체 변압기</div><div class="kpi-value">${DATA.length}</div></div>
-    <div class="kpi good"><div class="kpi-label">양호</div><div class="kpi-value">${counts.good||0}</div></div>
-    <div class="kpi warning"><div class="kpi-label">요주의</div><div class="kpi-value">${counts.warning||0}</div></div>
-    <div class="kpi critical"><div class="kpi-label">이상</div><div class="kpi-value">${counts.critical||0}</div></div>
-    <div class="kpi trend"><div class="kpi-label">📈 추세 경고</div><div class="kpi-value">${trendCount}</div></div>
+    <div class="kpi" tabindex="0">
+      <div class="kpi-label">전체 변압기</div><div class="kpi-value">${DATA.length}</div>
+      ${kpiTooltipHtml('전체 변압기 목록', DATA, '표시할 변압기가 없습니다')}
+    </div>
+    <div class="kpi good" tabindex="0">
+      <div class="kpi-label">양호</div><div class="kpi-value">${counts.good||0}</div>
+      ${kpiTooltipHtml('양호 변압기', byStatusUnits.good, '양호 상태인 변압기가 없습니다')}
+    </div>
+    <div class="kpi warning" tabindex="0">
+      <div class="kpi-label">요주의</div><div class="kpi-value">${counts.warning||0}</div>
+      ${kpiTooltipHtml('요주의 변압기', byStatusUnits.warning, '요주의 상태인 변압기가 없습니다')}
+    </div>
+    <div class="kpi critical" tabindex="0">
+      <div class="kpi-label">이상</div><div class="kpi-value">${counts.critical||0}</div>
+      ${kpiTooltipHtml('이상 변압기', byStatusUnits.critical, '이상 상태인 변압기가 없습니다')}
+    </div>
+    <div class="kpi trend" tabindex="0">
+      <div class="kpi-label">📈 추세 경고</div><div class="kpi-value">${trendCount}</div>
+      ${kpiTooltipHtml('추세 경고 변압기', trendUnits, '추세 경고가 있는 변압기가 없습니다', true)}
+    </div>
   </div>
 
   <div class="main-grid">
