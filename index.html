@@ -4050,6 +4050,22 @@ function safeRatio(a, b){
   return a > 0 ? Infinity : 0;
 }
 
+// 전체 용존가스량이 노이즈 수준으로 낮을 때(예: 오일 전체 교체 직후처럼 모든 가스가
+// 0~1ppm대) 비율(%) 기반 진단(Duval Triangle/Pentagon, IEC 60599)은 통계적으로 불안정해서,
+// 우연히 튄 비율만으로 "고온 과열"처럼 잘못 표시될 수 있다(예: CH4=1, C2H4=1, H2=0일 때
+// CH4/H2가 0으로 나누어져 무한대가 되거나, 50:50 비율이 나오는 경우).
+// 이미 앱에 있는 TDCG(가연성가스총량) 요주의 기준을 그대로 재사용해서, 실측 TDCG가 그
+// 기준의 10% 미만이면 "가스량 자체가 미미해 비율 진단이 의미 없음"으로 안내한다.
+// (10%라는 비율 자체는 새로 정한 여유 기준이며, 표준에서 검증된 수치는 아님)
+const DUVAL_NEGLIGIBLE_TDCG_FLOOR_PCT = 10;
+function gasEnvelopeNegligible(unit){
+  const g = unit.gases['TDCG'];
+  if(!g || g.caution == null) return false;
+  const lp = lastPoint(g.series);
+  if(!lp) return false;
+  return lp.v < g.caution * (DUVAL_NEGLIGIBLE_TDCG_FLOOR_PCT/100);
+}
+
 function computeDgaRatios(unit){
   const h2 = latestGasVal(unit,'H2'), ch4 = latestGasVal(unit,'CH4'), c2h2 = latestGasVal(unit,'C2H2'),
         c2h4 = latestGasVal(unit,'C2H4'), c2h6 = latestGasVal(unit,'C2H6');
@@ -4058,6 +4074,7 @@ function computeDgaRatios(unit){
     r_c2h2_c2h4: safeRatio(c2h2, c2h4),
     r_ch4_h2: safeRatio(ch4, h2),
     r_c2h4_c2h6: safeRatio(c2h4, c2h6),
+    negligible: gasEnvelopeNegligible(unit),
   };
 }
 function fmtRatio(r){ return r === Infinity ? '∞' : r.toFixed(2); }
@@ -4092,6 +4109,7 @@ const IEC60599_FAULT_TYPES = [
 function iec60599Diagnosis(ratios){
   const total = ratios.h2 + ratios.ch4 + ratios.c2h2 + ratios.c2h4 + ratios.c2h6;
   if(total <= 0) return { key:null, shortLabel:'정상(가스 미검출)', label:'검출된 가스가 거의 없어 정상으로 추정' };
+  if(ratios.negligible) return { key:null, shortLabel:'정상(가스량 미미)', label:'전체 가스량(TDCG)이 요주의 기준 대비 매우 낮아 비율(%) 진단이 불안정함 — 절대량 기준으로는 정상으로 추정' };
   const hit = IEC60599_FAULT_TYPES.find(f => f.test(ratios));
   if(hit) return { key:hit.key, shortLabel:hit.label, label:hit.label, group:hit.group };
   return { key:null, shortLabel:'정상(뚜렷한 패턴 없음)', label:'표준 범위와 정확히 일치하는 고장 패턴이 없음 — 정상으로 추정' };
@@ -4102,8 +4120,9 @@ function iec60599Diagnosis(ratios){
 // Duval Pentagon도 Triangle과 같은 방식(우세 가스 방향에 따른 근사 힌트)으로 참고 구역을
 // 어림 판정한다. Pentagon의 정확한 다각형 경계는 Triangle보다도 더 복잡하고 확인이 어려워,
 // 여기서는 각 구역의 대표적인 특징(우세 가스)만으로 가장 가까운 구역을 추정한다.
-function duvalPentagonZoneHint(pct){
+function duvalPentagonZoneHint(pct, negligible){
   if(!pct) return { text:'가스 미검출 — 판정 불가', level:'good' };
+  if(negligible) return { text:'가스량 극히 낮음(TDCG가 요주의 기준의 10% 미만) — 비율(%)은 이런 경우 노이즈에 가까워 참고만 할 것. 절대량 기준으로는 정상', level:'good' };
   const get = code => (pct.find(p=>p.code===code) || {pct:0}).pct;
   const pH2 = get('H2'), pC2H2 = get('C2H2'), pC2H4 = get('C2H4'), pCH4 = get('CH4'), pC2H6 = get('C2H6');
   if(pC2H2 >= 20) return { text:'방전(D1/D2) 인접 구역 — 아크성 방전 의심', level:'critical' };
@@ -4113,8 +4132,9 @@ function duvalPentagonZoneHint(pct){
   if((pCH4 + pC2H6) >= 60 && pC2H4 < 15 && pC2H2 < 10) return { text:'저온 과열(T1) 인접 구역 또는 정상', level:'good' };
   return { text:'복합/경계 구역 — 뚜렷한 우세 패턴 없음(정상 가능성)', level:'good' };
 }
-function duvalTriangleZoneHint(pct){
+function duvalTriangleZoneHint(pct, negligible){
   if(!pct) return { text:'가스 미검출 — 판정 불가', level:'good' };
+  if(negligible) return { text:'가스량 극히 낮음(TDCG가 요주의 기준의 10% 미만) — 비율(%)은 이런 경우 노이즈에 가까워 참고만 할 것. 절대량 기준으로는 정상', level:'good' };
   const { pC2H4, pC2H2 } = pct;
   if(pC2H2 >= 20) return { text:'방전(D1/D2) 인접 구역 — 아크성 방전 의심', level:'critical' };
   if(pC2H4 >= 50) return { text:'고온 과열(T3) 인접 구역', level:'critical' };
@@ -4160,7 +4180,8 @@ function renderDuvalTriangle(containerId, pctId, unit){
   svg += `</svg>`;
   container.innerHTML = svg;
   if(pctEl){
-    const hint = duvalTriangleZoneHint(pct);
+    const negligible = gasEnvelopeNegligible(unit);
+    const hint = duvalTriangleZoneHint(pct, negligible);
     const pctLine = pct
       ? `<span>CH4 <b>${pct.pCH4.toFixed(0)}%</b></span><span>C2H4 <b>${pct.pC2H4.toFixed(0)}%</b></span><span>C2H2 <b>${pct.pC2H2.toFixed(0)}%</b></span>`
       : `<span style="color:var(--text-muted)">가스 미검출 — 좌표 계산 불가</span>`;
@@ -4207,7 +4228,8 @@ function renderDuvalPentagon(containerId, pctId, unit){
   svg += `</svg>`;
   container.innerHTML = svg;
   if(pctEl){
-    const hint = duvalPentagonZoneHint(pct);
+    const negligible = gasEnvelopeNegligible(unit);
+    const hint = duvalPentagonZoneHint(pct, negligible);
     const pctLine = pct
       ? pct.map(p=>`<span>${p.code} <b>${p.pct.toFixed(0)}%</b></span>`).join('')
       : `<span style="color:var(--text-muted)">가스 미검출 — 좌표 계산 불가</span>`;
@@ -4406,7 +4428,7 @@ function renderIntlDiagnostics(unit, idx){
       <div class="stdintl-verdict ${iec.group==='electrical'?'critical':iec.group==='thermal'?'warning':'good'}">
         IEC 60599: ${iec.label}
       </div>
-      <div class="stdintl-note">개량 IEC Code(보고서 원문, 검증됨): <b>${modCode.code}</b> → ${modCode.type}</div>
+      <div class="stdintl-note">개량 IEC Code(보고서 원문, 검증됨): <b>${modCode.code}</b> → ${modCode.type}${ratios.negligible ? ' <span style="color:var(--text-muted)">(참고: 전체 가스량이 요주의 기준 대비 매우 낮아 실제로는 정상일 가능성이 높습니다)</span>' : ''}</div>
     `;
   }
 
