@@ -2932,6 +2932,40 @@ function renderIntlMethodsPage(){
         <li>어느 쪽도 뚜렷하지 않으면 <b>복합/경계 구역</b>으로, 정상이거나 여러 유형이 섞여 있을 가능성</li>
       </ul>
       <div class="th-note" style="margin-top:8px;">Triangle과 마찬가지로 정확한 다각형 경계 좌표가 아니라 우세 가스 방향에 따른 근사 분류이며, 개별 변압기 화면의 Duval Pentagon 카드가 이 기준으로 참고 힌트를 표시합니다.</div>
+
+      <div class="plan-note" style="margin-top:18px; font-weight:600;">계산식 (실제 앱이 쓰는 수식)</div>
+
+      <div class="plan-note" style="margin-top:6px;"><b>① 비율(%) 계산</b> — 5개 가스의 최신 측정값을 모두 더한 합계 대비, 각 가스가 차지하는 비중을 구합니다.</div>
+      <div class="th-note" style="margin-top:4px; font-family:monospace; white-space:pre-wrap;">합계 = H2 + CH4 + C2H6 + C2H4 + C2H2
+%G = (G ÷ 합계) × 100   (G = H2, CH4, C2H6, C2H4, C2H2 중 하나)
+※ 합계 ≤ 0 이면(가스 미검출) 좌표 계산 자체를 하지 않고 "판정 불가"로 표시</div>
+
+      <div class="plan-note" style="margin-top:12px;"><b>② 오각형 위 진단점 좌표</b> — 정확한 Duval Pentagon 2 공식 논문의 기하 계산이 아니라, 이 앱이 자체적으로 단순화한 근사 구현입니다.</div>
+      <div class="th-note" style="margin-top:4px; font-family:monospace; white-space:pre-wrap;">각 가스 i의 꼭짓점 방향 각도: θᵢ = -90° + i × 72°   (i = 0..4, H2·C2H6·C2H4·C2H2·CH4 순, 시계방향)
+중심(cx,cy)에서 꼭짓점까지 거리 R일 때, 가스 i의 축 위의 점:
+  Pᵢ = 중심 + (꼭짓점ᵢ - 중심) × (%Gᵢ ÷ 100)
+최종 진단점 = P₀~P₄ 다섯 점의 평균(무게중심)
+  진단점 = ( (ΣPᵢ.x)/5 , (ΣPᵢ.y)/5 )</div>
+
+      <div class="plan-note" style="margin-top:12px;"><b>③ 구역 판정(근사 힌트) 조건식</b> — 위에서 구한 %H2·%CH4·%C2H6·%C2H4·%C2H2 값을 아래 조건에 순서대로 대입해서 첫 번째로 맞는 조건의 결과를 채택합니다.</div>
+      <div style="overflow-x:auto; margin-top:8px;">
+        <table class="gas-table" style="min-width:520px;">
+          <thead><tr><th>우선순위</th><th>조건식</th><th>판정</th></tr></thead>
+          <tbody>
+            <tr><td class="num">1</td><td class="name">%C2H2 ≥ 20</td><td>방전(D1/D2) 인접 구역 — 위험</td></tr>
+            <tr><td class="num">2</td><td class="name">%C2H4 ≥ 35</td><td>고온 과열(T3) 인접 구역 — 위험</td></tr>
+            <tr><td class="num">3</td><td class="name">%C2H4 ≥ 15</td><td>중온 과열(T2) 인접 구역 — 주의</td></tr>
+            <tr><td class="num">4</td><td class="name">%H2 ≥ 40 그리고 %C2H4 &lt; 10 그리고 %C2H2 &lt; 10</td><td>부분방전(PD) 인접 구역 — 주의</td></tr>
+            <tr><td class="num">5</td><td class="name">(%CH4 + %C2H6) ≥ 60 그리고 %C2H4 &lt; 15 그리고 %C2H2 &lt; 10</td><td>저온 과열(T1) 인접 구역 또는 정상</td></tr>
+            <tr><td class="num">6</td><td class="name">위 1~5 어디에도 해당 안 됨</td><td>복합/경계 구역 — 정상 가능성</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="plan-note" style="margin-top:12px;"><b>④ 가스량 자체가 극히 낮을 때의 예외 처리</b> — ①~③은 전부 "비율(%)"만 보기 때문에, 절대량이 노이즈 수준(예: 오일 전체 교체 직후)이면 우연한 비율만으로 위험하게 보일 수 있습니다. 이를 막기 위해 위 ①~③보다 먼저 아래 조건을 확인합니다.</div>
+      <div class="th-note" style="margin-top:4px; font-family:monospace; white-space:pre-wrap;">TDCG(가연성가스총량) 실측값 &lt; TDCG 요주의(caution) 기준 × 10%
+→ 참이면: "가스량 극히 낮음 — 비율 판정 무의미, 절대량 기준 정상"으로 표시하고 ①~③ 결과는 무시</div>
+      <div class="th-note" style="margin-top:6px;">10%라는 비율은 이 앱이 정한 여유 기준이며 국제 표준에서 검증된 수치가 아닙니다. Duval Triangle 1, IEC 60599 카드에도 동일한 예외 처리가 적용됩니다.</div>
     </div>
   </div>
 
