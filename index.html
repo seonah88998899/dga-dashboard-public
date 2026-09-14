@@ -645,9 +645,10 @@
     <button class="btn-secondary" id="exportPdfBtn" type="button">📄 PDF로 내보내기</button>
     <div id="adminControls">
       <span class="upload-status" id="uploadStatus"></span>
+      <span id="unsavedBadge" style="display:none; font-size:11.5px; font-weight:700; color:var(--warning); background:var(--warning-soft); border-radius:6px; padding:5px 9px; white-space:nowrap;">⚠ 저장 안 됨 — 아래 초록 버튼을 눌러주세요</span>
       <input type="file" id="xlsxInput" accept=".xlsx" style="display:none" />
       <button class="upload-btn" id="uploadBtn" type="button" title="이 브라우저에서 미리보기됩니다. 확인 후 '모두에게 반영'을 눌러야 실제로 공유됩니다.">⭱ 엑셀 업로드 (미리보기)</button>
-      <button class="upload-btn" id="publishGithubBtn" type="button" style="background:#1f8a3d;" title="지금 화면의 데이터를 GitHub 저장소의 data.json에 직접 커밋합니다. 완료되면 잠시 후 모든 사람 화면에 반영됩니다.">☁ 모두에게 반영</button>
+      <button class="upload-btn" id="publishGithubBtn" type="button" style="background:#1f8a3d;" title="지금 화면의 데이터를 GitHub 저장소의 data.json에 직접 커밋합니다. 완료되면 잠시 후 모든 사람 화면에 반영됩니다.">☁ 모두에게 반영 (저장)</button>
       <button class="btn-secondary" id="exportSharedDataBtn" type="button" title="지금 화면의 데이터를 data.json 파일로 내려받습니다 (GitHub 자동 반영이 안 될 때 수동 업로드용 백업).">⭳ 파일로 내려받기(백업)</button>
       <button class="btn-secondary" id="githubSettingsBtn" type="button" title="GitHub 저장소 연결 정보(토큰 등)를 설정합니다. 최초 1회만 하면 됩니다.">⚙ GitHub 연결 설정</button>
     </div>
@@ -867,6 +868,20 @@ let DATA_SOURCE_LABEL = uploadedRowsAtStart
 // 이 값을 그대로 파일로 저장한다 - 로그인 없는 정적 페이지(GitHub Pages)에서는 서버에 직접 쓸 수
 // 없으므로, 이 파일을 받아 저장소에 올려야 다른 사람 화면에도 반영된다.
 let CURRENT_RAW_ROWS = uploadedRowsAtStart || RAW_ROWS;
+// "엑셀 업로드(미리보기)"로 화면에는 반영됐지만 아직 "모두에게 반영"으로 GitHub에 저장하지 않은 상태인지 표시한다.
+// 이 값이 true인 동안에는 5분마다 도는 syncFromServerAndRender()가 미리보기 내용을 조용히 덮어쓰지 않게 막는다.
+// 이전에 업로드만 하고 반영을 안 한 채 브라우저를 닫았다면(uploadedRowsAtStart) 처음부터 true로 시작한다.
+let hasUnsavedChanges = !!uploadedRowsAtStart;
+function updateUnsavedIndicator(){
+  const badge = document.getElementById('unsavedBadge');
+  if (badge) badge.style.display = hasUnsavedChanges ? 'inline-block' : 'none';
+}
+window.addEventListener('beforeunload', (e) => {
+  if (hasUnsavedChanges){
+    e.preventDefault();
+    e.returnValue = '';
+  }
+});
 
 /* =========================================================================
    공유 데이터 동기화 (data.json) - 로그인이 필요한 백엔드 없이, 이 페이지와 같은 위치에
@@ -893,6 +908,9 @@ async function fetchServerData(){
 }
 
 async function syncFromServerAndRender(){
+  // 아직 "모두에게 반영"으로 저장하지 않은 미리보기 내용이 있으면, 서버에서 다시 받아와
+  // 그 미리보기를 조용히 덮어쓰는 일이 없도록 건너뛴다 (반영을 누르기 전에 사라지는 문제 방지).
+  if (hasUnsavedChanges) return;
   const server = await fetchServerData();
   if(!server) return;
   try {
@@ -1043,7 +1061,9 @@ async function publishToGithub(){
           err.status = putRes.status;
           throw err;
         }
-        setUploadStatus('✓ GitHub에 반영 완료 — 1분 정도 후면 대시보드 링크를 보는 모든 사람에게 자동으로 나타납니다.', false);
+        hasUnsavedChanges = false;
+        updateUnsavedIndicator();
+        setUploadStatus('✓ GitHub에 반영 완료 (측정 ' + DATA.length + '개 변압기, 최신 기준일 ' + (REPORT_DATE || '—') + ') — 1분 정도 후면 대시보드 링크를 보는 모든 사람에게 자동으로 나타납니다.', false);
         return;
       } catch(err){
         lastErr = err;
@@ -1451,11 +1471,13 @@ function wireUploadButton(){
       BASE_UNITS = units;
       rebuildData();
       REPORT_DATE = latestDateOf(DATA) || '—';
-      DATA_SOURCE_LABEL = '업로드한 파일(이 브라우저에만 반영): ' + file.name;
+      DATA_SOURCE_LABEL = '업로드한 파일(이 브라우저에만 반영, 아직 저장 안 됨): ' + file.name;
       saveUploadedRows(rows, file.name);
       currentView = 'overview';
+      hasUnsavedChanges = true;
+      updateUnsavedIndicator();
       render();
-      setUploadStatus('"' + file.name + '" 반영 완료 (' + units.length + '개 변압기, 이 브라우저에만 적용됨) — 모두에게 반영하려면 아래 "공유용 data.json 내보내기"로 파일을 받아 저장소에 올려주세요.', false);
+      setUploadStatus('"' + file.name + '" 업로드됨 (' + units.length + '개 변압기, 최신 기준일 ' + (REPORT_DATE || '—') + ') — 아직 이 브라우저에만 보이는 미리보기입니다. 초록색 "☁ 모두에게 반영" 버튼을 눌러야 다른 사람에게도 반영됩니다.', false);
     } catch (err) {
       console.error(err);
       setUploadStatus('업로드 실패: ' + err.message, true);
@@ -4046,6 +4068,7 @@ wireUploadButton();
 document.getElementById('exportSharedDataBtn').addEventListener('click', exportSharedDataJson);
 document.getElementById('publishGithubBtn').addEventListener('click', publishToGithub);
 wireGithubSettingsPanel();
+updateUnsavedIndicator();
 
 (function initAdminModeToggle(){
   const ADMIN_MODE_KEY = 'dga_admin_mode_v1';
