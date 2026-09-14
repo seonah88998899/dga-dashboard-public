@@ -128,6 +128,15 @@
   }
   .std-pdf-size{ color: var(--text-muted); }
   .std-pdf-hint{ font-size: 11px; color: var(--text-muted); }
+  #adminControls{ display:none; align-items:center; gap:10px; }
+  body.admin-mode #adminControls{ display:flex; }
+  #adminModeToggle{
+    background: transparent; color: var(--text-muted); border: 1px solid var(--border);
+    padding: 6px 10px; border-radius: 8px; font-size: 12px; cursor: pointer;
+    font-family: var(--font-ui); white-space:nowrap; opacity: 0.55;
+  }
+  #adminModeToggle:hover{ opacity: 1; }
+  body.admin-mode #adminModeToggle{ opacity: 1; background: var(--surface-2); color: var(--text); }
   @media (max-width: 760px){
     .topbar{ flex-wrap: wrap; height: auto; padding: 10px 16px; }
     .topbar-title{ flex-wrap:wrap; }
@@ -633,13 +642,38 @@
 <div class="topbar">
   <div class="topbar-title">인천발전소 변압기 절연유 유중가스 분석 결과 <span class="sub" id="topbarSub"></span></div>
   <div class="topbar-actions">
-    <span class="upload-status" id="uploadStatus"></span>
     <button class="btn-secondary" id="exportPdfBtn" type="button">📄 PDF로 내보내기</button>
-    <input type="file" id="xlsxInput" accept=".xlsx" style="display:none" />
-    <button class="upload-btn" id="uploadBtn" type="button" title="이 브라우저에서만 미리보기됩니다. 모두에게 반영하려면 오른쪽 'data.json 내보내기'를 이용해 저장소에 올려주세요.">⭱ 엑셀 업로드 (미리보기)</button>
-    <button class="btn-secondary" id="exportSharedDataBtn" type="button" title="지금 화면의 데이터를 data.json으로 내려받습니다. 이 파일로 저장소의 data.json을 교체하면 모두에게 반영됩니다.">⭳ 공유용 data.json 내보내기</button>
+    <div id="adminControls">
+      <span class="upload-status" id="uploadStatus"></span>
+      <input type="file" id="xlsxInput" accept=".xlsx" style="display:none" />
+      <button class="upload-btn" id="uploadBtn" type="button" title="이 브라우저에서 미리보기됩니다. 확인 후 '모두에게 반영'을 눌러야 실제로 공유됩니다.">⭱ 엑셀 업로드 (미리보기)</button>
+      <button class="upload-btn" id="publishGithubBtn" type="button" style="background:#1f8a3d;" title="지금 화면의 데이터를 GitHub 저장소의 data.json에 직접 커밋합니다. 완료되면 잠시 후 모든 사람 화면에 반영됩니다.">☁ 모두에게 반영</button>
+      <button class="btn-secondary" id="exportSharedDataBtn" type="button" title="지금 화면의 데이터를 data.json 파일로 내려받습니다 (GitHub 자동 반영이 안 될 때 수동 업로드용 백업).">⭳ 파일로 내려받기(백업)</button>
+      <button class="btn-secondary" id="githubSettingsBtn" type="button" title="GitHub 저장소 연결 정보(토큰 등)를 설정합니다. 최초 1회만 하면 됩니다.">⚙ GitHub 연결 설정</button>
+    </div>
+    <button id="adminModeToggle" type="button" title="엑셀 업로드/반영 기능을 이 화면에 보이거나 숨깁니다. 다른 사람에게는 이 버튼을 알려주지 마세요.">⚙ 관리자 모드</button>
   </div>
 </div>
+
+<div id="githubSettingsOverlay" style="display:none; position:fixed; inset:0; background:rgba(20,30,50,0.45); z-index:100; align-items:center; justify-content:center;">
+  <div style="background:var(--surface); border-radius:12px; padding:24px 26px; width:min(440px,90vw); box-shadow:var(--shadow);">
+    <div style="font-size:16px; font-weight:800; margin-bottom:4px;">GitHub 연결 설정</div>
+    <div style="font-size:12px; color:var(--text-muted); margin-bottom:16px; line-height:1.6;">이 페이지에서 "모두에게 반영"을 누르면 여기 입력한 정보로 GitHub 저장소의 data.json 파일을 직접 갱신합니다. 토큰은 이 브라우저에만 저장되며 다른 사람에게 전송되지 않습니다.</div>
+    <label style="display:block; font-size:12px; font-weight:700; margin-bottom:4px;">저장소 소유자(Owner)</label>
+    <input id="ghOwnerInput" type="text" placeholder="예: seonah88998899" style="width:100%; box-sizing:border-box; padding:8px 10px; margin-bottom:12px; border:1px solid var(--border); border-radius:6px; font-family:var(--font-mono); font-size:12.5px;" />
+    <label style="display:block; font-size:12px; font-weight:700; margin-bottom:4px;">저장소 이름(Repository)</label>
+    <input id="ghRepoInput" type="text" placeholder="예: dga-dashboard-public" style="width:100%; box-sizing:border-box; padding:8px 10px; margin-bottom:12px; border:1px solid var(--border); border-radius:6px; font-family:var(--font-mono); font-size:12.5px;" />
+    <label style="display:block; font-size:12px; font-weight:700; margin-bottom:4px;">브랜치</label>
+    <input id="ghBranchInput" type="text" placeholder="main" style="width:100%; box-sizing:border-box; padding:8px 10px; margin-bottom:12px; border:1px solid var(--border); border-radius:6px; font-family:var(--font-mono); font-size:12.5px;" />
+    <label style="display:block; font-size:12px; font-weight:700; margin-bottom:4px;">Personal Access Token</label>
+    <input id="ghTokenInput" type="password" placeholder="ghp_... 또는 github_pat_..." style="width:100%; box-sizing:border-box; padding:8px 10px; margin-bottom:16px; border:1px solid var(--border); border-radius:6px; font-family:var(--font-mono); font-size:12.5px;" />
+    <div style="display:flex; gap:8px; justify-content:flex-end;">
+      <button class="btn-cancel" id="ghSettingsCancelBtn" type="button">취소</button>
+      <button class="btn-save" id="ghSettingsSaveBtn" type="button">저장</button>
+    </div>
+  </div>
+</div>
+
 <div class="app">
   <nav class="sidebar" id="sidebar"></nav>
   <main class="main" id="main"></main>
@@ -887,6 +921,111 @@ function exportSharedDataJson(){
   const blob = new Blob([json], {type: 'application/json'});
   downloadBlob(blob, 'data.json');
   setUploadStatus('data.json을 내려받았습니다 — 이 파일로 저장소의 data.json을 교체(커밋)하면 모든 사람에게 반영됩니다.', false);
+}
+
+/* =========================================================================
+   GitHub 자동 반영 - 이 관리자 페이지(admin.html)에서만 쓴다. 공개 대시보드
+   (index.html)에는 이 코드가 없다. GitHub Personal Access Token을 이 브라우저의
+   localStorage에만 저장해두고, "모두에게 반영"을 누르면 GitHub REST API(Contents API)로
+   저장소의 data.json 파일을 직접 갱신(커밋)한다. 그러면 GitHub Pages가 1분 이내에
+   자동으로 다시 배포하고, 공개 대시보드를 보고 있던 사람도 5분 폴링(또는 새로고침)으로
+   최신 데이터를 보게 된다. */
+const GH_SETTINGS_LS_KEY = 'dga_github_publish_settings_v1';
+function getGithubSettings(){
+  try {
+    const saved = localStorage.getItem(GH_SETTINGS_LS_KEY);
+    return saved ? JSON.parse(saved) : null;
+  } catch(e){ return null; }
+}
+function saveGithubSettings(settings){
+  try { localStorage.setItem(GH_SETTINGS_LS_KEY, JSON.stringify(settings)); } catch(e){}
+}
+
+function openGithubSettingsPanel(){
+  const s = getGithubSettings() || {};
+  document.getElementById('ghOwnerInput').value = s.owner || '';
+  document.getElementById('ghRepoInput').value = s.repo || '';
+  document.getElementById('ghBranchInput').value = s.branch || 'main';
+  document.getElementById('ghTokenInput').value = s.token || '';
+  document.getElementById('githubSettingsOverlay').style.display = 'flex';
+}
+function closeGithubSettingsPanel(){
+  document.getElementById('githubSettingsOverlay').style.display = 'none';
+}
+function wireGithubSettingsPanel(){
+  document.getElementById('githubSettingsBtn').addEventListener('click', openGithubSettingsPanel);
+  document.getElementById('ghSettingsCancelBtn').addEventListener('click', closeGithubSettingsPanel);
+  document.getElementById('ghSettingsSaveBtn').addEventListener('click', () => {
+    const owner = document.getElementById('ghOwnerInput').value.trim();
+    const repo = document.getElementById('ghRepoInput').value.trim();
+    const branch = document.getElementById('ghBranchInput').value.trim() || 'main';
+    const token = document.getElementById('ghTokenInput').value.trim();
+    if (!owner || !repo || !token){
+      alert('저장소 소유자, 저장소 이름, 토큰은 모두 입력해야 합니다.');
+      return;
+    }
+    saveGithubSettings({owner, repo, branch, token});
+    closeGithubSettingsPanel();
+    setUploadStatus('GitHub 연결 설정을 저장했습니다.', false);
+  });
+}
+
+// 문자열(한글 포함)을 GitHub API가 요구하는 base64로 안전하게 인코딩한다 (btoa는 UTF-8을 직접 지원하지 않음).
+function utf8ToBase64(str){
+  const bytes = new TextEncoder().encode(str);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary);
+}
+
+async function publishToGithub(){
+  const settings = getGithubSettings();
+  if (!settings){
+    setUploadStatus('먼저 "⚙ GitHub 연결 설정"에서 저장소 정보와 토큰을 입력해주세요.', true);
+    openGithubSettingsPanel();
+    return;
+  }
+  const {owner, repo, branch, token} = settings;
+  const path = 'data.json';
+  const apiUrl = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${path}`;
+  const headers = {
+    'Authorization': 'Bearer ' + token,
+    'Accept': 'application/vnd.github+json',
+  };
+  try {
+    setUploadStatus('GitHub에 반영하는 중...', false);
+    // 1) 기존 파일의 sha를 조회한다 (없으면 새로 만든다).
+    let sha;
+    const getRes = await fetch(apiUrl + '?ref=' + encodeURIComponent(branch), {headers});
+    if (getRes.ok){
+      const getData = await getRes.json();
+      sha = getData.sha;
+    } else if (getRes.status !== 404){
+      const errText = await getRes.text();
+      throw new Error('저장소 조회 실패 (' + getRes.status + '): ' + errText.slice(0,200));
+    }
+    // 2) 지금 화면의 데이터를 data.json 내용으로 커밋한다.
+    const content = utf8ToBase64(JSON.stringify(CURRENT_RAW_ROWS));
+    const dateTag = new Date().toISOString().slice(0,16).replace('T',' ');
+    const putRes = await fetch(apiUrl, {
+      method: 'PUT',
+      headers: {...headers, 'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        message: 'data.json 업데이트 (' + dateTag + ')',
+        content,
+        branch,
+        ...(sha ? {sha} : {}),
+      }),
+    });
+    if (!putRes.ok){
+      const errText = await putRes.text();
+      throw new Error('저장 실패 (' + putRes.status + '): ' + errText.slice(0,300));
+    }
+    setUploadStatus('✓ GitHub에 반영 완료 — 1분 정도 후면 대시보드 링크를 보는 모든 사람에게 자동으로 나타납니다.', false);
+  } catch(err){
+    console.error(err);
+    setUploadStatus('GitHub 반영 실패: ' + err.message + ' (토큰 권한/만료 여부를 확인해주세요. 대신 "⭳ 파일로 내려받기"로 수동 업로드할 수 있습니다.)', true);
+  }
 }
 
 const GAS_META = {
@@ -3868,6 +4007,26 @@ document.getElementById('exportPdfBtn').addEventListener('click', exportPdf);
 
 wireUploadButton();
 document.getElementById('exportSharedDataBtn').addEventListener('click', exportSharedDataJson);
+document.getElementById('publishGithubBtn').addEventListener('click', publishToGithub);
+wireGithubSettingsPanel();
+
+(function initAdminModeToggle(){
+  const ADMIN_MODE_KEY = 'dga_admin_mode_v1';
+  const toggleBtn = document.getElementById('adminModeToggle');
+  function applyAdminMode(on){
+    document.body.classList.toggle('admin-mode', on);
+    toggleBtn.textContent = on ? '⚙ 관리자 모드 (켜짐)' : '⚙ 관리자 모드';
+  }
+  let saved = false;
+  try { saved = localStorage.getItem(ADMIN_MODE_KEY) === '1'; } catch(e){}
+  applyAdminMode(saved);
+  toggleBtn.addEventListener('click', () => {
+    const next = !document.body.classList.contains('admin-mode');
+    applyAdminMode(next);
+    try { localStorage.setItem(ADMIN_MODE_KEY, next ? '1' : '0'); } catch(e){}
+  });
+})();
+
 render();
 syncFromServerAndRender();
 startSharedDataPolling();
