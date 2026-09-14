@@ -2882,6 +2882,23 @@ function renderIntlMethodsPage(){
         </table>
       </div>
       <div class="th-note" style="margin-top:8px;">※ 발생빈도가 높은 대표 사례. 위 19개 조합 외 나머지 조합(27개 중)은 원문에 없어 "판정 불가"로 처리합니다.</div>
+
+      <div class="plan-note" style="margin-top:18px; font-weight:600;">계산식 (실제 앱이 쓰는 수식)</div>
+
+      <div class="plan-note" style="margin-top:6px;"><b>① 세 가지 비율 계산</b> — 각 가스의 최신 측정값으로 비율을 구합니다. 분모가 0이면(측정값 0) 분자가 0보다 크면 무한대(∞), 분자도 0이면 0으로 처리합니다.</div>
+      <div class="th-note" style="margin-top:4px; font-family:monospace; white-space:pre-wrap;">r1 = C2H2 ÷ C2H4
+r2 = CH4 ÷ H2
+r3 = C2H4 ÷ C2H6</div>
+
+      <div class="plan-note" style="margin-top:12px;"><b>② 비율 → 코드(0/1/2) 변환</b> — 위 표 그대로, 각 비율을 아래 함수에 대입합니다.</div>
+      <div class="th-note" style="margin-top:4px; font-family:monospace; white-space:pre-wrap;">code(r1, C2H2/C2H4) = r1 &lt; 0.1 ? 0 : (r1 ≤ 3 ? 1 : 2)
+code(r2, CH4/H2)   = r2 &lt; 0.1 ? 1 : (r2 ≤ 1 ? 0 : 2)
+code(r3, C2H4/C2H6) = r3 &lt; 0.1 ? 0 : (r3 ≤ 1 ? 0 : (r3 ≤ 3 ? 1 : 2))</div>
+
+      <div class="plan-note" style="margin-top:12px;"><b>③ 세 자리 코드 조합 → 고장 유형 조회</b></div>
+      <div class="th-note" style="margin-top:4px; font-family:monospace; white-space:pre-wrap;">code = "" + code(r1) + code(r2) + code(r3)   (예: 0,2,1 → "021")
+type = 두 번째 표에서 code로 조회 → 없으면 "판정 불가 (보고서 표에 없는 조합)"</div>
+      <div class="th-note" style="margin-top:6px;">이 표(①~③)는 보고서 원문 그대로라 별도 예외 처리를 두지 않습니다. 다만 전체 가스량(TDCG)이 요주의 기준의 10% 미만으로 극히 낮을 때는, 개별 변압기 화면의 카드에 "실제로는 정상일 가능성이 높다"는 참고 문구가 코드값과 별도로 함께 표시됩니다(코드 계산 자체는 바뀌지 않음).</div>
     </div>
   </div>
 
@@ -2903,6 +2920,31 @@ function renderIntlMethodsPage(){
         </table>
       </div>
       <div class="th-note" style="margin-top:8px;">NS = Not Significant(이 유형 판정에 유의미하지 않은 비율). 개별 변압기 화면의 "IEC 60599 비율 진단" 카드가 이 표를 그대로 적용합니다.</div>
+
+      <div class="plan-note" style="margin-top:18px; font-weight:600;">계산식 (실제 앱이 쓰는 수식)</div>
+
+      <div class="plan-note" style="margin-top:6px;"><b>① 비율 계산</b> — 개량 IEC Code와 동일한 세 비율을 그대로 재사용합니다(분모 0 처리 방식도 동일).</div>
+      <div class="th-note" style="margin-top:4px; font-family:monospace; white-space:pre-wrap;">r1 = C2H2 ÷ C2H4,  r2 = CH4 ÷ H2,  r3 = C2H4 ÷ C2H6
+total = H2 + CH4 + C2H2 + C2H4 + C2H6</div>
+
+      <div class="plan-note" style="margin-top:12px;"><b>② 판정 순서</b> — 아래 순서대로 조건을 검사해서, 가장 먼저 참이 되는 조건의 유형을 채택합니다(하나도 안 맞으면 "정상"으로 처리).</div>
+      <div style="overflow-x:auto; margin-top:8px;">
+        <table class="gas-table" style="min-width:560px;">
+          <thead><tr><th>순서</th><th>유형</th><th>조건식</th></tr></thead>
+          <tbody>
+            <tr><td class="num">0</td><td class="name">정상(가스 미검출)</td><td>total ≤ 0</td></tr>
+            <tr><td class="num">0.5</td><td class="name">정상(가스량 미미)</td><td>TDCG 실측값 &lt; TDCG 요주의 기준 × 10%</td></tr>
+            <tr><td class="num">1</td><td class="name">PD</td><td>r1 &lt; 0.2 그리고 r2 &lt; 0.1 그리고 r3 &lt; 0.2</td></tr>
+            <tr><td class="num">2</td><td class="name">D1</td><td>r1 &gt; 1 그리고 0.1 ≤ r2 ≤ 0.5 그리고 r3 &gt; 1</td></tr>
+            <tr><td class="num">3</td><td class="name">D2</td><td>0.6 ≤ r1 ≤ 2.5 그리고 0.1 ≤ r2 ≤ 1 그리고 r3 &gt; 2</td></tr>
+            <tr><td class="num">4</td><td class="name">T1</td><td>r2 &gt; 1 그리고 r3 &lt; 1</td></tr>
+            <tr><td class="num">5</td><td class="name">T2</td><td>r2 &gt; 1 그리고 1 ≤ r3 ≤ 4</td></tr>
+            <tr><td class="num">6</td><td class="name">T3</td><td>r2 &gt; 1 그리고 r3 &gt; 4</td></tr>
+            <tr><td class="num">7</td><td class="name">정상(뚜렷한 패턴 없음)</td><td>위 어디에도 해당 안 됨</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="th-note" style="margin-top:8px;">"0.5"번(가스량 미미) 조건은 개량 IEC Code와 달리 실제로 판정 자체를 정상으로 덮어씁니다 — 가스 절대량이 노이즈 수준일 때 비율 계산 결과(T1~T3, D1/D2)를 신뢰하지 않기 위한 안전장치입니다.</div>
     </div>
   </div>
 
@@ -2916,6 +2958,35 @@ function renderIntlMethodsPage(){
         <li><b>T1·T2 구역</b> (중간 노랑) — 저·중온 과열, C2H4 비중 증가</li>
         <li><b>D1·D2 / T3 구역</b> (아래쪽 빨강) — 고에너지 방전 또는 고온 과열, C2H2 또는 C2H4 비중이 매우 큼</li>
       </ul>
+
+      <div class="plan-note" style="margin-top:18px; font-weight:600;">계산식 (실제 앱이 쓰는 수식)</div>
+
+      <div class="plan-note" style="margin-top:6px;"><b>① 비율(%) 계산</b></div>
+      <div class="th-note" style="margin-top:4px; font-family:monospace; white-space:pre-wrap;">합계 = CH4 + C2H4 + C2H2
+%CH4 = (CH4 ÷ 합계) × 100,  %C2H4 = (C2H4 ÷ 합계) × 100,  %C2H2 = (C2H2 ÷ 합계) × 100
+※ 합계 ≤ 0이면 좌표 계산을 하지 않고 "판정 불가"로 표시</div>
+
+      <div class="plan-note" style="margin-top:12px;"><b>② 삼각형 위 좌표 계산</b> — 이건 개략적인 근사가 아니라, 정삼각형의 세 꼭짓점(위=C2H2 100%, 좌하단=CH4 100%, 우하단=C2H4 100%)을 이용한 표준 삼각좌표(barycentric) 계산입니다. 배경에 칠해진 구역 경계선만 참고용 근사치입니다.</div>
+      <div class="th-note" style="margin-top:4px; font-family:monospace; white-space:pre-wrap;">점 = 좌하단꼭짓점 × (%CH4÷100) + 우하단꼭짓점 × (%C2H4÷100) + 위꼭짓점 × (%C2H2÷100)</div>
+
+      <div class="plan-note" style="margin-top:12px;"><b>③ 구역 판정(근사 힌트) 조건식</b> — 위에서 구한 %C2H4·%C2H2 값을 아래 순서대로 대입합니다.</div>
+      <div style="overflow-x:auto; margin-top:8px;">
+        <table class="gas-table" style="min-width:480px;">
+          <thead><tr><th>우선순위</th><th>조건식</th><th>판정</th></tr></thead>
+          <tbody>
+            <tr><td class="num">1</td><td class="name">%C2H2 ≥ 20</td><td>방전(D1/D2) 인접 구역 — 위험</td></tr>
+            <tr><td class="num">2</td><td class="name">%C2H4 ≥ 50</td><td>고온 과열(T3) 인접 구역 — 위험</td></tr>
+            <tr><td class="num">3</td><td class="name">%C2H4 ≥ 20</td><td>중온 과열(T2) 인접 구역 — 주의</td></tr>
+            <tr><td class="num">4</td><td class="name">%C2H4 ≥ 4</td><td>저온 과열(T1) 인접 구역 — 주의</td></tr>
+            <tr><td class="num">5</td><td class="name">위 1~4 어디에도 해당 안 됨</td><td>부분방전(PD) 인접 — 정상 범위 가능성 높음</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="plan-note" style="margin-top:12px;"><b>④ 가스량 자체가 극히 낮을 때의 예외 처리</b></div>
+      <div class="th-note" style="margin-top:4px; font-family:monospace; white-space:pre-wrap;">TDCG 실측값 &lt; TDCG 요주의 기준 × 10%
+→ 참이면 ①~③ 결과 대신 "가스량 극히 낮음 — 비율 판정 무의미, 절대량 기준 정상"으로 표시</div>
+      <div class="th-note" style="margin-top:6px;">Duval Pentagon·IEC 60599 카드와 동일한 예외 처리입니다(10% 기준은 이 앱이 정한 여유값이며 국제 표준 검증치 아님).</div>
     </div>
   </div>
 
