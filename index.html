@@ -3809,7 +3809,7 @@ function renderDetail(view){
   </div>
 
   <div class="table-heading-row" style="margin-top:0;">
-    <div class="section-title" style="margin:0;">절연 열화 진행도 (CO2·CO·전산가·수분·내전압)</div>
+    <div class="section-title" style="margin:0;">절연 열화 진행도 (CO2·CO·전산가·수분·내전압·TDCG)</div>
   </div>
   <div class="table-card" id="agingProgressionBody-${idx}" style="padding:16px; margin-bottom:22px;"></div>
 
@@ -4439,11 +4439,18 @@ function renderIntlSummaryBanner(unit, idx, modCode, iec, ieeeResult){
    위 "국제 표준 진단"(IEC 60599/Duval)은 지금 순간의 가스 비율로 "무슨 고장이냐"를
    판정하는 스냅샷 진단이다. 이 카드는 그와 별개로 "절연물이 시간에 따라 늙어가고
    있는가"를 CO2/CO(절연지=고체절연물 열화 지표) · 전산가(오일 산화) · 수분 · 내전압
-   (절연강도) 다섯 항목의 절대레벨과 90일 증가/감소 추세를 묶어서 판단한다.
-   - CO2 절대기준(5,000/7,000ppm)은 보고서 7p 원문(검증됨). 나머지 레벨(CO/전산가/
-     수분/내전압)은 이미 앱에 있는 회사 기준·절연유 유질 판정기준을 그대로 재사용한다.
-   - 추세는 기존 unitTrends()와 동일한 회귀 없는 2점 비교(90일 전 대비 30% 이상 변화)
-     로직을 그대로 재사용해 새로운 임계값을 만들지 않았다.
+   (절연강도) · TDCG(가연성가스총량, 열적/전기적 이상가스 누적) 여섯 항목의 절대레벨과
+   추세(증가/악화 방향)를 묶어서 판단한다.
+   - CO2 절대기준(5,000/7,000ppm)은 보고서 7p 원문(검증됨). CO/전산가/수분/내전압
+     레벨은 이미 앱에 있는 회사 기준·절연유 유질 판정기준을 그대로 재사용한다.
+   - CO2/CO/전산가/수분/내전압의 추세는 기존 unitTrends()와 동일한 회귀 없는 2점
+     비교(90일 전 대비 30% 이상 변화) 로직을 그대로 재사용해 새로운 임계값을 만들지 않았다.
+   - TDCG는 위 "IEEE 레벨×속도" 카드와 완전히 같은 로직(IEEE C57.104 Condition +
+     선형회귀 ppm/day)을 그대로 재사용한다 — H2·CH4·C2H4·C2H6·C2H2 등 나머지 열적/
+     전기적 이상가스는 개별 비율로는 이미 위쪽 Duval/IEC 60599 스냅샷 진단이 다루고
+     있고, 이들을 "시간에 따른 누적/가속"이라는 관점에서 보는 공식적인 방법은 IEEE
+     C57.104의 TDCG 발생속도 축이 사실상 유일하므로, 새 기준을 만들지 않고 그대로
+     가져왔다.
    ========================================================================= */
 function decreasingGasTrend(gasObj){
   const series = gasObj.series;
@@ -4477,12 +4484,27 @@ function agingProgressionSummary(unit){
   const bdvRaw = oilqParamStatus(unit, 'bdv');
 
   const asLevel = s => s === 'nodata' ? 'good' : s;
+
+  // 가연성가스총량(TDCG) 절대 레벨(IEEE C57.104 Condition) + 증가속도(ppm/day, 선형회귀) —
+  // 위쪽 "IEEE 레벨×속도" 카드와 완전히 같은 로직(ieeeTcgCondition/linRegSlopePpmPerDay/ieeeRateStatus)을
+  // 그대로 재사용한다. CO2/CO/전산가/수분/내전압이 "고체절연물·오일 자체"의 열화라면, 이 항목은
+  // H2·CH4·C2H4·C2H6·C2H2 등 열적/전기적 이상가스 발생이 시간에 따라 누적·가속되고 있는지를 본다.
+  const tdcgGas = unit.gases['TDCG'];
+  const tdcgLp = tdcgGas ? lastPoint(tdcgGas.series) : null;
+  const tdcgCond = tdcgLp ? ieeeTcgCondition(tdcgLp.v) : null;
+  const tdcgRate = tdcgGas ? linRegSlopePpmPerDay(tdcgGas.series, TREND_WINDOW_DAYS) : null;
+  const tdcgRateStatus = ieeeRateStatus(tdcgRate ? tdcgRate.slope : null);
+  const tdcgCondLevel = !tdcgCond ? 'good' : (tdcgCond.cond >= 3 ? 'critical' : tdcgCond.cond === 2 ? 'warning' : 'good');
+  const tdcgLevel = !tdcgLp ? 'good' : (rank[tdcgRateStatus.level] >= rank[tdcgCondLevel] ? tdcgRateStatus.level : tdcgCondLevel);
+  const tdcgText = !tdcgLp ? '데이터 없음' : `${fmtNum(tdcgLp.v)}ppm · ${tdcgCond.label} · 증가속도 ${tdcgRate ? tdcgRate.slope.toFixed(1)+'ppm/day('+tdcgRateStatus.label+')' : '측정 부족(3회 미만)'}`;
+
   const items = [
     { key:'co2', label:'CO2 (절연지 열화)', level: co2Level.level, text: co2Level.label },
     { key:'co', label:'CO (절연지 열화 동반)', level: asLevel(coRaw.status), text: coRaw.status==='nodata' ? '데이터 없음' : `${statusLabel(coRaw.status)} (${fmtNum(coRaw.value)}ppm)` },
     { key:'acid', label:'전산가 (오일 산화)', level: asLevel(acidRaw.status), text: acidRaw.status==='nodata' ? '데이터 없음' : `${oilqStatusLabel(acidRaw.status)} (${fmtNum(acidRaw.value)}mgKOH/g)` },
     { key:'moist', label:'수분', level: asLevel(moistRaw.status), text: moistRaw.status==='nodata' ? '데이터 없음' : `${oilqStatusLabel(moistRaw.status)} (${fmtNum(moistRaw.value)}ppm)` },
     { key:'bdv', label:'내전압 (절연강도)', level: asLevel(bdvRaw.status), text: bdvRaw.status==='nodata' ? '데이터 없음' : `${oilqStatusLabel(bdvRaw.status)} (${fmtNum(bdvRaw.value)}kV)` },
+    { key:'tdcg', label:'가연성가스총량 (TDCG, IEEE C57.104)', level: tdcgLevel, text: tdcgText },
   ];
 
   const trendDefs = [
