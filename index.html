@@ -3703,6 +3703,11 @@ function renderDetail(view){
   </div>
 
   <div class="table-heading-row" style="margin-top:0;">
+    <div class="section-title" style="margin:0;">절연 열화 진행도 (CO2·CO·전산가·수분·내전압)</div>
+  </div>
+  <div class="table-card" id="agingProgressionBody-${idx}" style="padding:16px; margin-bottom:22px;"></div>
+
+  <div class="table-heading-row" style="margin-top:0;">
     <div class="section-title" style="margin:0;">측정 성분 상세 (측정값)</div>
     <button class="panel-edit-btn" id="detailThreshEditBtn" type="button">✎ 기준값 수정</button>
   </div>
@@ -4300,6 +4305,93 @@ function renderIntlSummaryBanner(unit, idx, modCode, iec, ieeeResult){
   `;
 }
 
+/* =========================================================================
+   절연 열화 진행도 (Aging Progression)
+   ------------------------------------------------------------------------
+   위 "국제 표준 진단"(IEC 60599/Duval)은 지금 순간의 가스 비율로 "무슨 고장이냐"를
+   판정하는 스냅샷 진단이다. 이 카드는 그와 별개로 "절연물이 시간에 따라 늙어가고
+   있는가"를 CO2/CO(절연지=고체절연물 열화 지표) · 전산가(오일 산화) · 수분 · 내전압
+   (절연강도) 다섯 항목의 절대레벨과 90일 증가/감소 추세를 묶어서 판단한다.
+   - CO2 절대기준(5,000/7,000ppm)은 보고서 7p 원문(검증됨). 나머지 레벨(CO/전산가/
+     수분/내전압)은 이미 앱에 있는 회사 기준·절연유 유질 판정기준을 그대로 재사용한다.
+   - 추세는 기존 unitTrends()와 동일한 회귀 없는 2점 비교(90일 전 대비 30% 이상 변화)
+     로직을 그대로 재사용해 새로운 임계값을 만들지 않았다.
+   ========================================================================= */
+function decreasingGasTrend(gasObj){
+  const series = gasObj.series;
+  if(!series || series.length < 2) return null;
+  const latest = lastPoint(series);
+  if(!latest) return null;
+  const cutoff = addDaysISO(latest.d, -TREND_WINDOW_DAYS);
+  const past = series.filter(p=>p.d <= cutoff).sort((a,b)=> b.d.localeCompare(a.d))[0];
+  if(!past || past.v <= 0) return null;
+  const pct = ((latest.v - past.v) / past.v) * 100;
+  if(pct > -TREND_PCT_THRESHOLD) return null; // 30% 이상 감소해야 악화 추세로 인정(내전압은 낮을수록 나쁨)
+  return {pct: Math.round(pct), pastDate: past.d, pastValue: past.v, latestDate: latest.d, latestValue: latest.v};
+}
+
+// 보고서 7페이지 "절연유중 CO2 가스 관리 기준" 원문 그대로 (검증됨).
+function co2AgingLevel(unit){
+  const co2 = unit.gases['CO2'];
+  const lp = co2 ? lastPoint(co2.series) : null;
+  if(!lp) return { level:'good', label:'데이터 없음', value:null };
+  if(lp.v > 7000) return { level:'critical', label:`要注意 — ${fmtNum(lp.v)}ppm (7,000 초과, 열화도 정밀진단 권장: CO2·CO·Furfural 분석)`, value:lp.v };
+  if(lp.v >= 5000) return { level:'warning', label:`正常 — ${fmtNum(lp.v)}ppm (5,000~7,000, 관리방법 변경 권장: 유온 저감·수분/절연파괴전압 반기 1회)`, value:lp.v };
+  return { level:'good', label:`正常 — ${fmtNum(lp.v)}ppm (5,000 미만)`, value:lp.v };
+}
+
+function agingProgressionSummary(unit){
+  const rank = {good:0, warning:1, critical:2};
+  const co2Level = co2AgingLevel(unit);
+  const coRaw = unit.gases['CO'] ? gasStatus('CO', unit.gases['CO']) : {status:'nodata'};
+  const acidRaw = oilqParamStatus(unit, 'acid');
+  const moistRaw = oilqParamStatus(unit, 'moisture');
+  const bdvRaw = oilqParamStatus(unit, 'bdv');
+
+  const asLevel = s => s === 'nodata' ? 'good' : s;
+  const items = [
+    { key:'co2', label:'CO2 (절연지 열화)', level: co2Level.level, text: co2Level.label },
+    { key:'co', label:'CO (절연지 열화 동반)', level: asLevel(coRaw.status), text: coRaw.status==='nodata' ? '데이터 없음' : `${statusLabel(coRaw.status)} (${fmtNum(coRaw.value)}ppm)` },
+    { key:'acid', label:'전산가 (오일 산화)', level: asLevel(acidRaw.status), text: acidRaw.status==='nodata' ? '데이터 없음' : `${oilqStatusLabel(acidRaw.status)} (${fmtNum(acidRaw.value)}mgKOH/g)` },
+    { key:'moist', label:'수분', level: asLevel(moistRaw.status), text: moistRaw.status==='nodata' ? '데이터 없음' : `${oilqStatusLabel(moistRaw.status)} (${fmtNum(moistRaw.value)}ppm)` },
+    { key:'bdv', label:'내전압 (절연강도)', level: asLevel(bdvRaw.status), text: bdvRaw.status==='nodata' ? '데이터 없음' : `${oilqStatusLabel(bdvRaw.status)} (${fmtNum(bdvRaw.value)}kV)` },
+  ];
+
+  const trendDefs = [
+    { key:'co2', label:'CO2', trend: unit.gases['CO2'] ? gasTrend(unit.gases['CO2']) : null },
+    { key:'co', label:'CO', trend: unit.gases['CO'] ? gasTrend(unit.gases['CO']) : null },
+    { key:'acid', label:'전산가', trend: unit.gases['ACID'] ? gasTrend(unit.gases['ACID']) : null },
+    { key:'moist', label:'수분', trend: unit.gases['MOIST'] ? gasTrend(unit.gases['MOIST']) : null },
+    { key:'bdv', label:'내전압(감소)', trend: unit.gases['BDV'] ? decreasingGasTrend(unit.gases['BDV']) : null },
+  ].filter(t => t.trend);
+
+  let overall = items.reduce((w,l)=> rank[l.level] > rank[w.level] ? l : w, items[0]).level;
+  if(overall === 'good' && trendDefs.length > 0) overall = 'warning'; // 레벨은 정상이어도 뚜렷한 악화 추세가 있으면 격상
+
+  return { overall, items, trendDefs };
+}
+
+function renderAgingProgressionCard(unit, idx){
+  const el = document.getElementById('agingProgressionBody-'+idx);
+  if(!el) return;
+  const s = agingProgressionSummary(unit);
+  const headline = s.overall === 'critical'
+    ? '⚠ 열화 진행: 정밀분석 필요한 수준'
+    : s.overall === 'warning'
+      ? (s.trendDefs.length > 0 ? '△ 열화 진행: 서서히 진행 중 (증가/악화 추세 감지)' : '△ 열화 진행: 관찰 필요')
+      : '✓ 열화 진행: 뚜렷한 진행 없음';
+  const trendHtml = s.trendDefs.length
+    ? `<div class="stdintl-note" style="margin-top:8px;">최근 90일 추세: ${s.trendDefs.map(t=>`${t.label} ${t.trend.pct>0?'+':''}${t.trend.pct}%`).join(' · ')}</div>`
+    : `<div class="stdintl-note" style="margin-top:8px;">최근 90일간 뚜렷한 증가/악화 추세 없음</div>`;
+  el.innerHTML = `
+    <div class="stdintl-verdict ${s.overall}" style="margin-bottom:10px; font-size:14px;">${headline}</div>
+    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px,1fr)); gap:6px 20px;">
+      ${s.items.map(it=>`<div class="stdintl-ratio-row"><span>${it.label}</span><span class="v" style="font-weight:600; color:var(--${it.level==='good'?'good':it.level==='warning'?'warning':'critical'});">${it.text}</span></div>`).join('')}
+    </div>
+    ${trendHtml}
+  `;
+}
+
 function renderIntlDiagnostics(unit, idx){
   const ratios = computeDgaRatios(unit);
   const modCode = modifiedIecCodeDiagnosis(ratios);
@@ -4332,6 +4424,7 @@ function renderIntlDiagnostics(unit, idx){
   }
 
   renderIntlSummaryBanner(unit, idx, modCode, iec, ieeeResult);
+  renderAgingProgressionCard(unit, idx);
 }
 
 function drawEcsgPattern(containerId, unit, height){
