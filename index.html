@@ -978,13 +978,37 @@ function utf8ToBase64(str){
   return btoa(binary);
 }
 
+async function fetchGithubFileSha(apiUrl, branch, headers){
+  // cache: 'no-store' 로 브라우저/중간 캐시가 오래된 sha를 돌려주지 않게 한다.
+  const getRes = await fetch(apiUrl + '?ref=' + encodeURIComponent(branch) + '&_=' + Date.now(), {headers, cache: 'no-store'});
+  if (getRes.ok){
+    const getData = await getRes.json();
+    return getData.sha;
+  } else if (getRes.status === 404){
+    return undefined;
+  } else {
+    const errText = await getRes.text();
+    throw new Error('저장소 조회 실패 (' + getRes.status + '): ' + errText.slice(0,200));
+  }
+}
+
+let publishInProgress = false;
 async function publishToGithub(){
+  // 버튼을 여러 번 눌러도 동시에 두 번 반영되지 않도록 막는다 (동시 요청은 서로의 sha를 어긋나게 해 409를 계속 유발할 수 있다).
+  if (publishInProgress){
+    setUploadStatus('이미 반영 중입니다. 완료될 때까지 잠시만 기다려주세요.', false);
+    return;
+  }
   const settings = getGithubSettings();
   if (!settings){
     setUploadStatus('먼저 "⚙ GitHub 연결 설정"에서 저장소 정보와 토큰을 입력해주세요.', true);
     openGithubSettingsPanel();
     return;
   }
+  publishInProgress = true;
+  const publishBtn = document.getElementById('publishGithubBtn');
+  const publishBtnOrigText = publishBtn ? publishBtn.textContent : '';
+  if (publishBtn){ publishBtn.disabled = true; publishBtn.style.opacity = '0.6'; publishBtn.style.cursor = 'wait'; publishBtn.textContent = '☁ 반영 중...'; }
   const {owner, repo, branch, token} = settings;
   const path = 'data.json';
   const apiUrl = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${path}`;
@@ -992,39 +1016,51 @@ async function publishToGithub(){
     'Authorization': 'Bearer ' + token,
     'Accept': 'application/vnd.github+json',
   };
+  const content = utf8ToBase64(JSON.stringify(CURRENT_RAW_ROWS));
+  const dateTag = new Date().toISOString().slice(0,16).replace('T',' ');
+  const MAX_ATTEMPTS = 3;
+  let lastErr;
   try {
-    setUploadStatus('GitHub에 반영하는 중...', false);
-    // 1) 기존 파일의 sha를 조회한다 (없으면 새로 만든다).
-    let sha;
-    const getRes = await fetch(apiUrl + '?ref=' + encodeURIComponent(branch), {headers});
-    if (getRes.ok){
-      const getData = await getRes.json();
-      sha = getData.sha;
-    } else if (getRes.status !== 404){
-      const errText = await getRes.text();
-      throw new Error('저장소 조회 실패 (' + getRes.status + '): ' + errText.slice(0,200));
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++){
+      setUploadStatus(attempt === 1 ? 'GitHub에 반영하는 중...' : `GitHub에 반영하는 중... (재시도 ${attempt}/${MAX_ATTEMPTS})`, false);
+      try {
+        // 1) 기존 파일의 sha를 매 시도마다 새로 조회한다 (동시 반영/충돌 대비).
+        const sha = await fetchGithubFileSha(apiUrl, branch, headers);
+        // 2) 지금 화면의 데이터를 data.json 내용으로 커밋한다.
+        const putRes = await fetch(apiUrl, {
+          method: 'PUT',
+          headers: {...headers, 'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            message: 'data.json 업데이트 (' + dateTag + ')',
+            content,
+            branch,
+            ...(sha ? {sha} : {}),
+          }),
+        });
+        if (!putRes.ok){
+          const errText = await putRes.text();
+          const err = new Error('저장 실패 (' + putRes.status + '): ' + errText.slice(0,300));
+          err.status = putRes.status;
+          throw err;
+        }
+        setUploadStatus('✓ GitHub에 반영 완료 — 1분 정도 후면 대시보드 링크를 보는 모든 사람에게 자동으로 나타납니다.', false);
+        return;
+      } catch(err){
+        lastErr = err;
+        // sha 충돌(409)은 다른 반영과 겹쳤을 때 생기는 일시적 오류이므로 sha를 다시 받아 자동 재시도한다.
+        if (err && err.status === 409 && attempt < MAX_ATTEMPTS){
+          await new Promise(r => setTimeout(r, 700 * attempt));
+          continue;
+        }
+        throw err;
+      }
     }
-    // 2) 지금 화면의 데이터를 data.json 내용으로 커밋한다.
-    const content = utf8ToBase64(JSON.stringify(CURRENT_RAW_ROWS));
-    const dateTag = new Date().toISOString().slice(0,16).replace('T',' ');
-    const putRes = await fetch(apiUrl, {
-      method: 'PUT',
-      headers: {...headers, 'Content-Type': 'application/json'},
-      body: JSON.stringify({
-        message: 'data.json 업데이트 (' + dateTag + ')',
-        content,
-        branch,
-        ...(sha ? {sha} : {}),
-      }),
-    });
-    if (!putRes.ok){
-      const errText = await putRes.text();
-      throw new Error('저장 실패 (' + putRes.status + '): ' + errText.slice(0,300));
-    }
-    setUploadStatus('✓ GitHub에 반영 완료 — 1분 정도 후면 대시보드 링크를 보는 모든 사람에게 자동으로 나타납니다.', false);
   } catch(err){
     console.error(err);
     setUploadStatus('GitHub 반영 실패: ' + err.message + ' (토큰 권한/만료 여부를 확인해주세요. 대신 "⭳ 파일로 내려받기"로 수동 업로드할 수 있습니다.)', true);
+  } finally {
+    publishInProgress = false;
+    if (publishBtn){ publishBtn.disabled = false; publishBtn.style.opacity = ''; publishBtn.style.cursor = ''; publishBtn.textContent = publishBtnOrigText || '☁ 모두에게 반영'; }
   }
 }
 
@@ -1393,6 +1429,7 @@ function setUploadStatus(msg, isError){
   const el = document.getElementById('uploadStatus');
   if (!el) return;
   el.textContent = msg || '';
+  el.title = msg || ''; // 화면에서 ...으로 잘려도 마우스를 올리면 전체 메시지를 볼 수 있다.
   el.style.color = isError ? 'var(--critical)' : 'var(--text-muted)';
 }
 
